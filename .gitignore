@@ -1,0 +1,27 @@
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Maven build output
+/target/
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+
+# VS Code
+.vscode/
+
+# Local configuration
+application-local.yml
+application-local.yaml
+
+# Logs
+*.log
