@@ -8,6 +8,16 @@ import pytest  # noqa: E402
 from app.config import get_settings  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def frozen_today(monkeypatch):
+    """Các test dùng ngày cố định quanh 2026-11-11 (Thứ Tư); khoảng đặt lịch 5 ngày là 11 -> 15/11."""
+    from datetime import date
+
+    from app.llm import tools
+
+    monkeypatch.setattr(tools, "today", lambda: date(2026, 11, 11))
+
+
 @pytest.fixture
 def model_mode(monkeypatch):
     s = get_settings()

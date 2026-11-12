@@ -61,6 +61,8 @@ def build_system_prompt(now: datetime | None = None) -> str:
         weekday=_WEEKDAYS[now.weekday()],
         today=now.strftime("%Y-%m-%d"),
         calendar=_calendar(now),
+        window_days=get_settings().booking_window_days,
+        booking_last=(now + timedelta(days=get_settings().booking_window_days - 1)).strftime("%Y-%m-%d"),
     )
 
 

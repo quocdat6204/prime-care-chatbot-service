@@ -544,7 +544,7 @@ async def test_tool_definitions_are_all_executable_and_unique(monkeypatch):
 
 
 def test_valid_days_clamped():
-    assert [_valid_days(x) for x in (None, "abc", 0, -3, 1, 5, 7, 99, "3")] == [1, 1, 1, 1, 1, 5, 7, 7, 3]
+    assert [_valid_days(x) for x in (None, "abc", 0, -3, 1, 5, 7, 99, "3")] == [1, 1, 1, 1, 1, 5, 5, 5, 3]
 
 
 async def test_schedule_multi_day_queries_each_date(monkeypatch):
@@ -849,3 +849,71 @@ async def test_doctor_not_found_has_neutral_suggestions(monkeypatch):
     out = await chat_service.process_message("u", "Bác sĩ Khoi có lịch ngày mai không?")
     assert out["intent"] == "DOCTOR_INFO" and out["actions"] == []
     assert not any("bác sĩ này" in s.lower() for s in out["suggestions"])
+
+
+# ---------- Chỉ đặt lịch trong 5 ngày tính từ hôm nay (hôm nay = 2026-11-11 -> đến hết 2026-11-15) ----------
+
+async def test_schedule_outside_booking_window_is_not_queried(monkeypatch):
+    seen = []
+
+    async def sessions(date, doctor_id=None):
+        seen.append(date)
+        return []
+
+    monkeypatch.setattr("app.clients.clinic.get_sessions", sessions)
+    result, actions = await execute_tool("get_schedule", {"date": "2026-11-16", "doctor_id": 3})
+    assert seen == []  # không gọi clinic-service cho ngày chưa mở đặt lịch
+    assert "ngoài khoảng đặt lịch" in result["error"] and "2026-11-15" in result["error"]
+    assert actions == [{"type": "_hint", "date": None, "doctor_id": 3}]  # nút (nếu có) không kèm ngày
+
+
+async def test_schedule_range_is_cut_at_window_end(monkeypatch):
+    seen = []
+
+    async def sessions(date, doctor_id=None):
+        seen.append(date)
+        return []
+
+    monkeypatch.setattr("app.clients.clinic.get_sessions", sessions)
+    result, _ = await execute_tool("get_schedule", {"date": "2026-11-14", "days": 5})
+    assert seen == ["2026-11-14", "2026-11-15"]
+    assert result["to_date"] == "2026-11-15" and result["days"] == 2
+    assert "2026-11-15" in result["window_note"]
+
+
+async def test_schedule_last_day_of_window_is_allowed(monkeypatch):
+    async def sessions(date, doctor_id=None):
+        return []
+
+    monkeypatch.setattr("app.clients.clinic.get_sessions", sessions)
+    result, _ = await execute_tool("get_schedule", {"date": "2026-11-15"})
+    assert "error" not in result and "window_note" not in result
+
+
+async def test_booking_link_drops_date_outside_window():
+    for bad in ("2026-11-16", "2026-12-01", "2026-11-10"):  # sau khoảng và ngày đã qua
+        result, actions = await execute_tool("get_booking_link", {"date": bad, "doctor_name": "Quang"})
+        assert actions[0]["url"] == "/patient/booking?doctorId=3"
+        assert "KHÔNG kèm ngày" in result["note"] and "2026-11-15" in result["note"]
+    result, actions = await execute_tool("get_booking_link", {"date": "2026-11-15"})
+    assert actions[0]["url"] == "/patient/booking?date=2026-11-15"
+
+
+def test_prompt_states_booking_window():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    p = chat_service.build_system_prompt(datetime(2026, 11, 11, 9, 0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh")))
+    assert "{booking_last}" not in p and "{window_days}" not in p
+    assert "trong 5 ngày tính từ hôm nay, tức từ 2026-11-11 đến hết 2026-11-15" in p
+    assert "NGÀY NGOÀI KHOẢNG ĐẶT LỊCH" in p
+
+
+async def test_far_date_request_gives_button_without_date(monkeypatch, model_mode):
+    fake = Fake([
+        _resp(tool_calls=[_tc("c", "get_booking_link", '{"date":"2026-11-20","doctor_name":"Quang"}')]),
+        _resp(content="Phòng khám chỉ nhận đặt lịch đến hết 15/11. Bạn bấm nút Đặt lịch hẹn bên dưới để chọn ngày khác nhé."),
+    ])
+    monkeypatch.setattr(chat_service, "get_openai", lambda: fake)
+    out = await chat_service.process_message("u", "Đặt giúp mình với bác sĩ Quang ngày 20/11")
+    assert [a["url"] for a in out["actions"]] == ["/patient/booking?doctorId=3"]

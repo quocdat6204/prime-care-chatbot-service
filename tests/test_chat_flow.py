@@ -298,11 +298,11 @@ async def test_schedule_lookup_button_carries_date_and_doctor(monkeypatch):
 
     monkeypatch.setattr("app.clients.clinic.get_sessions", fake_sessions)
     fake = FakeOpenAI([
-        _resp(tool_calls=[_tool_call("c1", "get_schedule", {"date": "2026-11-16", "doctor_id": 3})]),
-        _resp(content="Bác sĩ chưa có ca vào thứ Hai."),
+        _resp(tool_calls=[_tool_call("c1", "get_schedule", {"date": "2026-11-15", "doctor_id": 3})]),
+        _resp(content="Bác sĩ chưa có ca vào Chủ Nhật."),
     ])
     monkeypatch.setattr(chat_service, "get_openai", lambda: fake)
-    out = await chat_service.process_message("u1", "Bác sĩ Quang có lịch thứ hai tuần sau không?")
-    assert out["actions"] == [{"type": "booking", "label": "Đặt lịch hẹn", "url": "/patient/booking?date=2026-11-16&doctorId=3"}]
+    out = await chat_service.process_message("u1", "Bác sĩ Quang có lịch chủ nhật này không?")
+    assert out["actions"] == [{"type": "booking", "label": "Đặt lịch hẹn", "url": "/patient/booking?date=2026-11-15&doctorId=3"}]
     assert all(a["type"] != "_hint" for a in out["actions"])  # gợi ý nội bộ không lộ ra ngoài
     assert out["intent"] == "CHECK_SCHEDULE"

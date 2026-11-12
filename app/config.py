@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     eureka_url: str = "http://localhost:8761/eureka/"
     eureka_instance_host: str = ""
 
+    # Số ngày được đặt lịch tính từ hôm nay (phải khớp trang đặt lịch của frontend: get5DaysFromToday)
+    booking_window_days: int = 5
+
     # Giới hạn
     max_message_chars: int = 500
     rate_limit_per_minute: int = 20

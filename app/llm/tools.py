@@ -6,13 +6,15 @@ Mỗi tool trả về dict JSON-serializable. Lỗi upstream được đổi th�
 import asyncio
 import json
 from datetime import date as date_cls
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from app.clients import clinic, user
 from app.clients.common import UpstreamError
+from app.config import get_settings
 
 _CLINIC_INFO = json.loads(
     (Path(__file__).resolve().parent.parent / "data" / "clinic_info.json").read_text(encoding="utf-8")
@@ -22,6 +24,24 @@ BOOKING_PATH = "/patient/booking"
 APPOINTMENTS_PATH = "/patient/appointments"
 BOOKING_LABEL = "Đặt lịch hẹn"
 HINT_TYPE = "_hint"
+
+
+def today() -> date_cls:
+    """Ngày hôm nay theo giờ phòng khám (tách riêng để test thay được)."""
+    return datetime.now(ZoneInfo(get_settings().timezone)).date()
+
+
+def booking_window() -> tuple[date_cls, date_cls]:
+    """Khoảng ngày được phép đặt lịch: hôm nay và các ngày kế tiếp, tổng cộng booking_window_days ngày
+    (trang đặt lịch của website cũng chỉ hiển thị đúng khoảng này)."""
+    first = today()
+    return first, first + timedelta(days=get_settings().booking_window_days - 1)
+
+
+def _window_text() -> str:
+    first, last = booking_window()
+    return (f"Phòng khám chỉ nhận đặt lịch trong {get_settings().booking_window_days} ngày, "
+            f"từ {first.isoformat()} (hôm nay) đến hết {last.isoformat()}")
 
 
 def booking_action(url: str = BOOKING_PATH) -> dict[str, Any]:
@@ -68,14 +88,14 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get_schedule",
-            "description": "Tra các ca khám đang mở: bác sĩ, ngày, ca, số chỗ còn trống, phí khám. Mặc định tra 1 ngày; truyền days (tối đa 7) để tra nhiều ngày liên tiếp bắt đầu từ date (ví dụ cả tuần). Có thể lọc theo bác sĩ: ƯU TIÊN truyền doctor_name (đúng tên bệnh nhân nhắc, hệ thống tự tìm bác sĩ); chỉ dùng doctor_id khi đã lấy được từ find_doctors, TUYỆT ĐỐI không tự đoán doctor_id.",
+            "description": "Tra các ca khám đang mở: bác sĩ, ngày, ca, số chỗ còn trống, phí khám. Chỉ tra được trong 5 ngày tính từ hôm nay (phòng khám chỉ mở đặt lịch trong khoảng đó). Mặc định tra 1 ngày; truyền days (tối đa 5) để tra nhiều ngày liên tiếp bắt đầu từ date. Có thể lọc theo bác sĩ: ƯU TIÊN truyền doctor_name (đúng tên bệnh nhân nhắc, hệ thống tự tìm bác sĩ); chỉ dùng doctor_id khi đã lấy được từ find_doctors, TUYỆT ĐỐI không tự đoán doctor_id.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "date": {"type": "string", "description": "Ngày dạng YYYY-MM-DD"},
                     "doctor_name": {"type": "string", "description": "Tên (hoặc một phần tên) bác sĩ bệnh nhân nhắc tới, tùy chọn"},
                     "doctor_id": {"type": "integer", "description": "ID bác sĩ, tùy chọn"},
-                    "days": {"type": "integer", "description": "Số ngày liên tiếp cần tra, từ 1 đến 7 (mặc định 1)"},
+                    "days": {"type": "integer", "description": "Số ngày liên tiếp cần tra, từ 1 đến 5 (mặc định 1)"},
                 },
                 "required": ["date"],
                 "additionalProperties": False,
@@ -90,7 +110,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "date": {"type": "string", "description": "Ngày dạng YYYY-MM-DD, tùy chọn"},
+                    "date": {"type": "string", "description": "Ngày dạng YYYY-MM-DD, tùy chọn; phải nằm trong 5 ngày tính từ hôm nay"},
                     "doctor_name": {"type": "string", "description": "Tên bác sĩ bệnh nhân nhắc tới, tùy chọn (ưu tiên hơn doctor_id; không tự đoán id)"},
                     "doctor_id": {"type": "integer", "description": "ID bác sĩ, tùy chọn"},
                 },
@@ -140,12 +160,12 @@ def _valid_id(value: Any) -> int | None:
 
 
 def _valid_days(value: Any) -> int:
-    """Số ngày tra lịch: 1..7, mặc định 1."""
+    """Số ngày tra lịch: 1..booking_window_days, mặc định 1."""
     try:
         n = int(value)
     except (TypeError, ValueError):
         return 1
-    return max(1, min(7, n))
+    return max(1, min(get_settings().booking_window_days, n))
 
 
 class DoctorError(Exception):
@@ -210,14 +230,25 @@ async def execute_tool(name: str, args: dict[str, Any]) -> tuple[dict[str, Any],
             doc = doctor["id"] if doctor else None
             days = _valid_days(args.get("days"))
             start = date_cls.fromisoformat(d)
-            dates = [(start + timedelta(days=i)).isoformat() for i in range(days)]
+            _, last = booking_window()
+            if start > last:
+                # Ngoài khoảng đặt lịch: không tra, không gắn ngày vào nút (trang đặt lịch không có ngày đó)
+                actions.append({"type": HINT_TYPE, "date": None, "doctor_id": doc})
+                result = {"error": f"Ngày {d} nằm ngoài khoảng đặt lịch. {_window_text()}. "
+                                   "Hãy nói rõ điều này với bệnh nhân và mời họ chọn ngày trong khoảng đó; "
+                                   "KHÔNG nói là 'không có ca' hay 'hết chỗ'."}
+                if doctor:
+                    result["doctor"] = doctor
+                return result, actions
+            dates = [x.isoformat() for x in (start + timedelta(days=i) for i in range(days)) if x <= last]
+            truncated = len(dates) < days
             per_day = await asyncio.gather(*[clinic.get_sessions(x, doc) for x in dates])
             sessions = [s for day in per_day for s in day]
             with_slots = sum(1 for s in sessions if (s.get("available_slots") or 0) > 0)
             # gợi ý nội bộ để nút đặt lịch tự kèm đúng ngày/bác sĩ; bị lọc trước khi trả về frontend
             actions.append({"type": HINT_TYPE, "date": d, "doctor_id": doc})
             result = {
-                "date": d, "from_date": d, "to_date": dates[-1], "days": days,
+                "date": d, "from_date": d, "to_date": dates[-1], "days": len(dates),
                 "count": len(sessions), "open_sessions": len(sessions), "sessions_with_free_slots": with_slots,
                 "sessions": sessions,
             }
@@ -228,6 +259,9 @@ async def execute_tool(name: str, args: dict[str, Any]) -> tuple[dict[str, Any],
                                   "ngày đã qua luôn không có ca). Hãy nói đúng như vậy, đừng nói là 'hết chỗ'.")
             elif with_slots == 0:
                 result["note"] = "Có ca khám đang mở nhưng TẤT CẢ đã hết chỗ."
+            if truncated:
+                result["window_note"] = (f"Chỉ tra đến hết {dates[-1]}. {_window_text()}; "
+                                         "các ngày sau đó chưa đặt được, hãy nói rõ với bệnh nhân.")
             return result, actions
 
         if name == "get_appointments_link":
@@ -237,9 +271,17 @@ async def execute_tool(name: str, args: dict[str, Any]) -> tuple[dict[str, Any],
         if name == "get_booking_link":
             d = _valid_date(args.get("date"))
             doctor = await _resolve_doctor(args)
+            note = "Đã tạo nút Đặt lịch cho bệnh nhân."
+            if d:
+                first, last = booking_window()
+                if not first <= date_cls.fromisoformat(d) <= last:
+                    # Ngày ngoài khoảng đặt lịch: vẫn đưa nút nhưng không kèm ngày
+                    note = (f"Đã tạo nút Đặt lịch nhưng KHÔNG kèm ngày {d} vì ngày này không đặt được. {_window_text()}. "
+                            "Hãy nói rõ với bệnh nhân và mời họ chọn ngày trong khoảng đó trên trang đặt lịch.")
+                    d = None
             url = build_booking_url(d, doctor["id"] if doctor else None)
             actions.append(booking_action(url))
-            return {"ok": True, "note": "Đã tạo nút Đặt lịch cho bệnh nhân."}, actions
+            return {"ok": True, "note": note}, actions
 
         return {"error": f"Công cụ không tồn tại: {name}"}, actions
     except DoctorError as e:
