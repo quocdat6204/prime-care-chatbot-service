@@ -1,0 +1,37 @@
+{
+  "name": "PrimeCare Dental",
+  "hotline": "+84 123456789",
+  "email": "contact@primecare.vn",
+  "branches": [
+    { "name": "Cơ sở 1 - Hà Nội", "address": "123 Phố Huế, Q. Hai Bà Trưng, Hà Nội" },
+    { "name": "Cơ sở 2 - TP. Hồ Chí Minh", "address": "456 Nguyễn Thị Minh Khai, Q. 3, TP. HCM" }
+  ],
+  "working_hours": {
+    "morning_shift": "08:00 - 12:00",
+    "afternoon_shift": "13:30 - 17:30",
+    "note": "Khám theo ca, đặt lịch trước trên website để giữ chỗ."
+  },
+  "booking": {
+    "how_to": [
+      "Đăng nhập tài khoản trên website.",
+      "Vào mục Đặt lịch khám, chọn 'Đặt theo ngày' hoặc 'Đặt theo bác sĩ'.",
+      "Chọn ca khám còn chỗ và xác nhận giữ chỗ.",
+      "Thanh toán trực tuyến qua VNPay nếu hệ thống yêu cầu."
+    ],
+    "payment": "Hỗ trợ thanh toán trực tuyến qua VNPay."
+  },
+  "faq": [
+    {
+      "q": "Phòng khám có những loại dịch vụ nào?",
+      "a": "Nha khoa điều trị và thẩm mỹ, xét nghiệm cận lâm sàng, chẩn đoán hình ảnh (X-quang...). Giá và chi tiết từng dịch vụ xem bằng công cụ tra cứu dịch vụ."
+    },
+    {
+      "q": "Tôi nên khám răng định kỳ bao lâu một lần?",
+      "a": "Thông thường khoảng 6 tháng một lần, hoặc sớm hơn nếu có triệu chứng bất thường."
+    },
+    {
+      "q": "Chụp X-quang có được bác sĩ giải thích kết quả không?",
+      "a": "Có. Bác sĩ trực tiếp thăm khám sẽ chỉ định và giải thích kết quả; chatbot không đọc hay chẩn đoán phim."
+    }
+  ]
+}

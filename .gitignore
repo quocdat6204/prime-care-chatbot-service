@@ -25,3 +25,10 @@ application-local.yaml
 
 # Logs
 *.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+env
